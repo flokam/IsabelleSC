@@ -218,11 +218,86 @@ definition global_consistency
  "global_consistency Il \<equiv> (\<forall> I I'. inbc I Il \<longrightarrow> inbc I' Il \<longrightarrow> 
        (\<forall> d. (ledgra (graphI I') d) = (ledgra (graphI I) d)))"
 
+lemma glob_con_dom_eq: \<open>global_consistency Il \<Longrightarrow> inbc I Il \<Longrightarrow> inbc I' Il \<Longrightarrow>
+                        dom (ledgra (graphI I)) = dom (ledgra (graphI I'))\<close>
+  by (metis global_consistency_def map_le_antisym map_le_def)
 
-lemma bc_upd_inv: \<open>global_consistency Il \<Longrightarrow> global_consistency (bc_upd d lN Il)\<close>
-  unfolding global_consistency_def bc_upd_def upd_Il_def
-  sorry
+lemma updIl_lem0: "d \<notin> dom (ledgra (graphI I)) \<Longrightarrow> 
+        (I \<in> set(upd_Il d lN il)) \<Longrightarrow> (I \<in> set il)" unfolding upd_Il_def upd_ld_def
+proof (induction il)
+  case Nil
+then show ?case
+  by simp 
+next
+  case (Cons a il)
+  then show ?case
+    by auto 
+qed
 
+lemma updIl_lem1: "d \<notin> dom (ledgra (graphI I)) \<Longrightarrow> 
+        inbc I (Infs p (upd_Il d lN (the_Il Il)) r) \<Longrightarrow> inbc I (Infs p (the_Il Il) r)"
+  using inbc.inbc_def updIl_lem0 by blast
+  
+lemma d_dom_ledgra: "(d \<notin> dom (ledgra (graphI I))) \<Longrightarrow>
+                     inbc I (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il))) \<Longrightarrow>
+                     inbc I Il"
+  by (metis blockchainset.exhaust inbc.inbc_def the_Il.simps updIl_lem1)
+
+lemma upd_lem3a: \<open>I \<in> set (upd_Il d lN il) 
+    \<Longrightarrow> ledgra (graphI I) d = Some lN\<close>
+unfolding upd_Il_def upd_ld_def
+proof (induction il)
+case Nil
+then show ?case
+  by simp 
+next
+  case (Cons a il)
+  then show ?case
+    by auto 
+qed
+
+lemma upd_lem3: \<open>inbc I (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il))) 
+    \<Longrightarrow> ledgra (graphI I) d = Some lN\<close>
+by (rule upd_lem3a, simp add: upd_Il_def upd_ld_def)
+
+lemma upd_lem4a:
+  assumes "I \<in> set (upd_Il d lN il)"
+  shows "\<exists>I0. I = upd_ld d lN I0 \<and> I0 \<in> (set il)"
+  using assms
+proof (induction il)
+  case Nil
+  then show ?case
+    by simp
+next
+  case (Cons a il)
+  then show ?case
+    by auto
+qed
+
+lemma upd_lem4: "inbc I (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il)))
+     \<Longrightarrow> \<exists> I0. I = upd_ld d lN I0 \<and> inbc I0 Il"
+  by (metis blockchainset.exhaust inbc.inbc_def the_Il.simps upd_lem4a)
+
+lemma bc_upd_inv: 
+  assumes \<open>global_consistency Il\<close>
+  shows \<open>global_consistency (bc_upd d lN Il)\<close>
+  unfolding global_consistency_def bc_upd_def
+proof (clarify)
+  fix I I' da
+  assume p0 : "inbc I (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il)))"
+    and p1: "inbc I' (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il)))"
+  obtain I0 where \<open>I = upd_ld d lN I0\<close>  and "inbc I0 Il" using assms upd_lem4 p0
+    by blast
+  obtain I1 where \<open>I' = upd_ld d lN I1\<close>  and "inbc I1 Il" using assms upd_lem4 p1
+    by blast
+  have prem0: "\<forall> d. ledgra (graphI I0) d = ledgra (graphI I1) d"
+    using \<open>inbc I0 Il\<close> \<open>inbc I1 Il\<close> assms global_consistency_def by blast 
+  show "inbc I (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il))) \<Longrightarrow>
+       inbc I' (Infs (the_ibc Il) (upd_Il d lN (the_Il Il)) (upd_ld d lN (relayer Il))) \<Longrightarrow>
+       ledgra (graphI I') da = ledgra (graphI I) da"
+    using assms
+    by (simp add: \<open>I = upd_ld d lN I0\<close> \<open>I' = upd_ld d lN I1\<close> \<open>inbc I0 Il\<close> \<open>inbc I1 Il\<close> global_consistency_def upd_ld_def)
+qed
 
 inductive state_transition_in :: "[blockchainset, blockchainset] \<Rightarrow> bool" ("(_ \<rightarrow>\<^sub>n _)" 50)
 where
