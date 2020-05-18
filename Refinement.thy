@@ -1,4 +1,4 @@
-theory ModTrans 
+theory Refinement
 imports AT
 begin
 

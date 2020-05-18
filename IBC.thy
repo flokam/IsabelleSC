@@ -1,5 +1,5 @@
-theory SC
-  imports ModTrans
+theory IBC
+  imports Refinement
 begin
 
 datatype action = scan | eval |submit
@@ -211,7 +211,7 @@ definition relrole
   where "relrole I a = role (graphI I) (a, ''relayer'')"
 
 (* abstract constant to express consensus about the successor state*)
-consts Consensus :: "actor set \<Rightarrow> blockchainset"
+consts Consensus :: "actor set \<Rightarrow> infrastructure \<Rightarrow> blockchainset \<Rightarrow> blockchainset"
 
 definition global_consistency
   where 
@@ -310,7 +310,7 @@ where
                            ((ledgra R)(d := Some((a', as),N)))
                            ((Send(a,b,(a,as), d)) # (trec R)))
                    (delta (relayer Il)) \<Longrightarrow>  
-         l \<in> trcs Il \<Longrightarrow> Consensus (actors G) = Il' \<Longrightarrow>
+         l \<in> trcs Il \<Longrightarrow> Consensus (actors G) I Il = Il' \<Longrightarrow>
          Il' = insertp ((Send(a,b,(a,as), d)) # l) (replrel R' Il)
          \<Longrightarrow> Il \<rightarrow>\<^sub>n Il'"
 | submit : "G = graphI I \<Longrightarrow> inbc I Il \<Longrightarrow> a @\<^bsub>G\<^esub> n \<Longrightarrow> n \<in> nodes G \<Longrightarrow> 
@@ -326,7 +326,7 @@ where
                            ((Receive(a,b,(a,as), d)) # (trec R)))
                   (delta (relayer Il))  \<Longrightarrow>
             Il' = insertp (Receive(a,b,(a,as),d)# l) (replrel R' (bc_upd d ((b,bs), N) Il)) \<Longrightarrow>
-            Consensus (actors H) = Il 
+            Consensus (actors H) J Il = Il' 
             \<Longrightarrow> Il \<rightarrow>\<^sub>n Il'"
 
 instantiation blockchainset :: state
@@ -389,7 +389,7 @@ proof (erule state_transition_in.cases, simp_all)
           (Send (a, b, (a, as), d) # trec (graphI (relayer Ila))))
         (delta (relayer Ila)) \<Longrightarrow>
        l \<in> trcs Ila \<Longrightarrow>
-       Consensus (actors (graphI I)) =
+       Consensus (actors (graphI I)) I Ila =
        insertp (Send (a, b, (a, as), d) # l)
         (replrel
           (Infrastructure
@@ -465,7 +465,16 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l actors.
               (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           (bc_upd d ((b, bs), N) Ila)) \<Longrightarrow>
-       Consensus (actors (graphI J)) = Ila \<Longrightarrow>
+       Consensus (actors (graphI J)) J Ila =
+       insertp (Receive (a, b, (a, as), d) # l)
+        (replrel
+          (Infrastructure
+            (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
+              (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
+              (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+            (delta (relayer Ila)))
+          (bc_upd d ((b, bs), N) Ila))   \<Longrightarrow>
        global_consistency
         (insertp (Receive (a, b, (a, as), d) # l)
           (replrel
@@ -496,6 +505,16 @@ by moura
 qed
 qed
 
-  
+locale Nakamoto =
+
+fixes cons_algo :: \<open>actor set \<Rightarrow> infrastructure \<Rightarrow> infrastructure\<close>
+defines cons_algo_def: "cons_algo A I \<equiv> I"
+
+fixes Consensus :: \<open>actor set \<Rightarrow> infrastructure \<Rightarrow> blockchainset \<Rightarrow> blockchainset\<close>
+defines Consensus_def: 
+  "Consensus A I Il \<equiv> (replace (cons_algo A I) I Il)"
+
+begin
+end
 
 end
