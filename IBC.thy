@@ -80,7 +80,7 @@ type_synonym transaction_record = "sc_fun list"
 
 datatype igraph = Lgraph "(node * node)set" "node \<Rightarrow> identity set"
                          "actor \<Rightarrow> (string set * string set)"  "node \<Rightarrow> string"
-                         "ledger" "transaction_record"
+                         "ledger" "node \<Rightarrow> transaction_record"
 datatype infrastructure = 
          Infrastructure "igraph" 
                         "[igraph ,node] \<Rightarrow> policy set" 
@@ -96,7 +96,7 @@ primrec lgra :: "igraph \<Rightarrow> (node \<Rightarrow> string)"
   where  "lgra(Lgraph g a c l ld tr) = l"
 primrec ledgra :: "igraph \<Rightarrow> ledger"
   where  "ledgra(Lgraph g a c l ld tr) = ld"
-primrec trec :: "igraph \<Rightarrow> transaction_record"
+primrec trec :: "igraph \<Rightarrow> node \<Rightarrow> transaction_record"
   where "trec(Lgraph g a c l ld tr) = tr"
 
 definition nodes :: "igraph \<Rightarrow> node set" 
@@ -299,6 +299,24 @@ proof (clarify)
     by (simp add: \<open>I = upd_ld d lN I0\<close> \<open>I' = upd_ld d lN I1\<close> \<open>inbc I0 Il\<close> \<open>inbc I1 Il\<close> global_consistency_def upd_ld_def)
 qed
 
+lemma trec_upd_inv: 
+  fixes ibc Il rl I I'
+  assumes \<open>global_consistency (Infs ibc Il rl)\<close>
+   and  \<open>ledgra (graphI I) = ledgra (graphI I')\<close>
+ shows  \<open>global_consistency (replace I I' (Infs ibc Il rl))\<close>
+  unfolding global_consistency_def using assms
+proof (induction Il)
+  case Nil
+  then show ?case
+    by simp 
+next
+  case (Cons a Il)
+  then show ?case sorry
+qed
+
+
+
+
 inductive state_transition_in :: "[blockchainset, blockchainset] \<Rightarrow> bool" ("(_ \<rightarrow>\<^sub>n _)" 50)
 where
  scan : "inbc I Il \<Longrightarrow> G = graphI I \<Longrightarrow> a @\<^bsub>G\<^esub> n \<Longrightarrow> n \<in> nodes G \<Longrightarrow> 
@@ -308,7 +326,7 @@ where
          R' = Infrastructure 
                    (Lgraph (gra R)(agra R)(cgra R)(lgra R)
                            ((ledgra R)(d := Some((a', as),N)))
-                           ((Send(a,b,(a,as), d)) # (trec R)))
+                           (\<lambda> n. (Send(a,b,(a,as), d)) # (trec R n)))
                    (delta (relayer Il)) \<Longrightarrow>  
          l \<in> trcs Il \<Longrightarrow> Consensus I Il = Il' \<Longrightarrow>
          Il' = insertp ((Send(a,b,(a,as), d)) # l) (replrel R' Il)
@@ -323,11 +341,29 @@ where
             R' = Infrastructure 
                    (Lgraph (gra R)(agra R)(cgra R)(lgra R)
                            ((ledgra R)(d := Some((b, bs),N)))
-                           ((Receive(a,b,(a,as), d)) # (trec R)))
+                           (\<lambda> n. (Receive(a,b,(a,as), d)) # (trec R n)))
                   (delta (relayer Il))  \<Longrightarrow>
             Il' = insertp (Receive(a,b,(a,as),d)# l) (replrel R' (bc_upd d ((b,as), N) Il)) \<Longrightarrow>
             Consensus J Il = Il' 
-            \<Longrightarrow> Il \<rightarrow>\<^sub>n Il'"
+            \<Longrightarrow> Il \<rightarrow>\<^sub>n Il'" |
+ internal_Send : "inbc I Il \<Longrightarrow> G = graphI I \<Longrightarrow> a \<in> actors G \<Longrightarrow> n \<in> nodes G \<Longrightarrow> 
+         ledgra G d = Some ((a, as), N) \<Longrightarrow> 
+         I' = Infrastructure 
+                   (Lgraph (gra G)(agra G)(cgra G)(lgra G)
+                           (ledgra G)
+                           ((trec G)(n := (Send(a,b,(a,as), d)) # (trec G n))))
+                   (delta I) \<Longrightarrow>  
+         Il' = replace I' I Il
+         \<Longrightarrow> Il \<rightarrow>\<^sub>n Il'"|
+ internal_Receive : "inbc I Il \<Longrightarrow> G = graphI I \<Longrightarrow> a \<in> actors G \<Longrightarrow> n \<in> nodes G \<Longrightarrow> 
+         ledgra G d = Some ((a, as), N) \<Longrightarrow> 
+         I' = Infrastructure 
+                   (Lgraph (gra G)(agra G)(cgra G)(lgra G)
+                           (ledgra G)
+                           ((trec G)(n := (Receive(a,b,(a,as), d)) # (trec G n))))
+                   (delta I) \<Longrightarrow>  
+         Il' = replace I' I Il
+         \<Longrightarrow> Il \<rightarrow>\<^sub>n Il'"
 
 instantiation blockchainset :: state
 begin
@@ -349,7 +385,7 @@ R = graphI (relayer Il) \<Longrightarrow>
 R' = Infrastructure 
                    (Lgraph (gra R)(agra R)(cgra R)(lgra R)
                            ((ledgra R)(d := Some((a', as),N)))
-                           ((Send(a,b,(a,as), d)) # (trec R)))
+                           (\<lambda> n. (Send(a,b,(a,as), d)) # (trec R n)))
                    (delta I) \<Longrightarrow>
 Il' = insertp ((Send(a,b,(a,as), d)) # l) (replrel R' Il)
 \<Longrightarrow> global_consistency Il'"
@@ -358,7 +394,7 @@ Il' = insertp ((Send(a,b,(a,as), d)) # l) (replrel R' Il)
 theorem consistency_preservation: 
    "global_consistency Il \<Longrightarrow> (Il \<rightarrow>\<^sub>n Il') \<Longrightarrow> global_consistency Il'" 
 proof (erule state_transition_in.cases, simp_all)
-  show \<open>\<And>I Ila G a n R r n' d as N R' a' b l actors Il'a.
+  show \<open>\<And>I Ila G a n R r n' d as N R' a' b l Il'a.
        global_consistency Ila \<Longrightarrow>
        Il = Ila \<Longrightarrow>
        Il' =
@@ -368,7 +404,7 @@ proof (erule state_transition_in.cases, simp_all)
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
               (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-              (Send (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+              (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
             (delta (relayer Ila)))
           Ila) \<Longrightarrow>
        inbc I Ila \<Longrightarrow>
@@ -386,7 +422,7 @@ proof (erule state_transition_in.cases, simp_all)
        Infrastructure
         (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila))) (cgra (graphI (relayer Ila)))
           (lgra (graphI (relayer Ila))) (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-          (Send (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+          (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
         (delta (relayer Ila)) \<Longrightarrow>
        l \<in> trcs Ila \<Longrightarrow>
        Consensus I Ila =
@@ -396,7 +432,7 @@ proof (erule state_transition_in.cases, simp_all)
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
               (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-              (Send (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+              (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
             (delta (relayer Ila)))
           Ila) \<Longrightarrow>
        Il'a =
@@ -406,7 +442,7 @@ proof (erule state_transition_in.cases, simp_all)
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
               (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-              (Send (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+              (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
             (delta (relayer Ila)))
           Ila) \<Longrightarrow>
        global_consistency
@@ -416,7 +452,7 @@ proof (erule state_transition_in.cases, simp_all)
               (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
                 (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
                 (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-                (Send (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+                (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
               (delta (relayer Ila)))
             Ila))\<close>
     by (simp add: cons_lemma)
@@ -430,7 +466,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
               (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-              (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+              (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
             (delta (relayer Ila)))
           (bc_upd d ((b, as), N) Ila)) \<Longrightarrow>
        G = graphI I \<Longrightarrow>
@@ -453,7 +489,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
        Infrastructure
         (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila))) (cgra (graphI (relayer Ila)))
           (lgra (graphI (relayer Ila))) (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-          (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+          (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
         (delta (relayer Ila)) \<Longrightarrow>
        Il'a =
        insertp (Receive (a, b, (a, as), d) # l)
@@ -462,7 +498,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
               (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-              (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+              (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
             (delta (relayer Ila)))
           (bc_upd d ((b, as), N) Ila)) \<Longrightarrow>
        Consensus J Ila =
@@ -472,7 +508,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
               (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-              (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+              (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
             (delta (relayer Ila)))
           (bc_upd d ((b, as), N) Ila)) \<Longrightarrow>
        global_consistency
@@ -482,16 +518,95 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
               (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
                 (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
                 (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-                (Receive (a, b, (a, as), d) # trec (graphI (relayer Ila))))
+                (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
               (delta (relayer Ila)))
             (bc_upd d ((b, as), N) Ila))) \<close>
     by (smt bc_upd_def bc_upd_inv global_consistency_def inbc.inbc_def insertp_def replrel.replrel_def the_Il.simps) 
-qed
+next show \<open> \<And>I Ila G a actors n d as N I' b Il'a.
+       global_consistency Ila \<Longrightarrow>
+       Il = Ila \<Longrightarrow>
+       Il' =
+       replace
+        (Infrastructure
+          (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I))
+            (ledgra (graphI I)) ((trec (graphI I))(n := Send (a, b, (a, as), d) # trec (graphI I) n)))
+          (delta I))
+        I Ila \<Longrightarrow>
+       inbc I Ila \<Longrightarrow>
+       G = graphI I \<Longrightarrow>
+       a \<in> actors (graphI I) \<Longrightarrow>
+       n \<in> nodes (graphI I) \<Longrightarrow>
+       ledgra (graphI I) d = Some ((a, as), N) \<Longrightarrow>
+       I' =
+       Infrastructure
+        (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I)) (ledgra (graphI I))
+          ((trec (graphI I))(n := Send (a, b, (a, as), d) # trec (graphI I) n)))
+        (delta I) \<Longrightarrow>
+       Il'a =
+       replace
+        (Infrastructure
+          (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I))
+            (ledgra (graphI I)) ((trec (graphI I))(n := Send (a, b, (a, as), d) # trec (graphI I) n)))
+          (delta I))
+        I Ila \<Longrightarrow>
+       global_consistency
+        (replace
+          (Infrastructure
+            (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I))
+              (ledgra (graphI I)) ((trec (graphI I))(n := Send (a, b, (a, as), d) # trec (graphI I) n)))
+            (delta I))
+          I Ila)\<close>
+    by (metis blockchainset.exhaust graphI.simps ledgra.simps trec_upd_inv)
+next show \<open>\<And>I Ila G a actors n d as N I' b Il'a.
+       global_consistency Ila \<Longrightarrow>
+       Il = Ila \<Longrightarrow>
+       Il' =
+       replace
+        (Infrastructure
+          (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I))
+            (ledgra (graphI I)) ((trec (graphI I))(n := Receive (a, b, (a, as), d) # trec (graphI I) n)))
+          (delta I))
+        I Ila \<Longrightarrow>
+       inbc I Ila \<Longrightarrow>
+       G = graphI I \<Longrightarrow>
+       a \<in> actors (graphI I) \<Longrightarrow>
+       n \<in> nodes (graphI I) \<Longrightarrow>
+       ledgra (graphI I) d = Some ((a, as), N) \<Longrightarrow>
+       I' =
+       Infrastructure
+        (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I)) (ledgra (graphI I))
+          ((trec (graphI I))(n := Receive (a, b, (a, as), d) # trec (graphI I) n)))
+        (delta I) \<Longrightarrow>
+       Il'a =
+       replace
+        (Infrastructure
+          (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I))
+            (ledgra (graphI I)) ((trec (graphI I))(n := Receive (a, b, (a, as), d) # trec (graphI I) n)))
+          (delta I))
+        I Ila \<Longrightarrow>
+       global_consistency
+        (replace
+          (Infrastructure
+            (Lgraph (gra (graphI I)) (agra (graphI I)) (cgra (graphI I)) (lgra (graphI I))
+              (ledgra (graphI I)) ((trec (graphI I))(n := Receive (a, b, (a, as), d) # trec (graphI I) n)))
+            (delta I))
+          I Ila) \<close>
+    by (metis blockchainset.exhaust graphI.simps ledgra.simps trec_upd_inv)  
+  qed
 
 locale ConsensusExample =
 
+fixes cons_algo_aux :: \<open>infrastructure \<Rightarrow> blockchainset \<Rightarrow> sc_fun\<close>
+defines cons_algo_aux_def: "cons_algo_aux I Il \<equiv> 
+          (SOME x. x \<in> {x. \<exists> n. n \<in> nodes (graphI I) \<and> x = hd(trec (graphI I) n)})"
+
 fixes cons_algo :: \<open>infrastructure \<Rightarrow> blockchainset \<Rightarrow> infrastructure\<close>
-defines cons_algo_def: "cons_algo I Il \<equiv> I"
+defines cons_algo_def: "cons_algo I Il \<equiv> 
+           Infrastructure 
+                   (Lgraph (gra (graphI I))(agra (graphI I))(cgra (graphI I))
+                           (lgra (graphI I))(ledgra (graphI I))
+                            ((\<lambda> n. (cons_algo_aux I Il) # (trec (graphI I) n))))
+                   (delta I)"
 
 fixes Consensus :: \<open>infrastructure \<Rightarrow> blockchainset \<Rightarrow> blockchainset\<close>
 defines Consensus_def: 
