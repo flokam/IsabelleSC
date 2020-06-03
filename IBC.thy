@@ -192,7 +192,15 @@ definition bc_upd
 
 primrec replace :: "infrastructure \<Rightarrow> infrastructure \<Rightarrow> blockchainset \<Rightarrow> blockchainset"
   where
-replace_def: "replace I' I (Infs ibc Il rl) = Infs ibc (I' # (remove1 I Il)) rl"
+replace_def: "replace I' I (Infs ibc Il rl) = 
+               (Infs ibc (if (I \<notin> set Il) then Il 
+                          else (I' # (remove1 I Il))
+                         ) rl)"
+(*              (Infs ibc (case Il of
+                          [] \<Rightarrow> [] 
+                        | _  \<Rightarrow> (I' # (remove1 I Il))
+                        ) rl)"
+*)
 
 primrec inbc :: "infrastructure \<Rightarrow> blockchainset \<Rightarrow> bool"
   where
@@ -299,23 +307,56 @@ proof (clarify)
     by (simp add: \<open>I = upd_ld d lN I0\<close> \<open>I' = upd_ld d lN I1\<close> \<open>inbc I0 Il\<close> \<open>inbc I1 Il\<close> global_consistency_def upd_ld_def)
 qed
 
-lemma trec_upd_inv: 
-  fixes ibc Il rl I I'
-  assumes \<open>global_consistency (Infs ibc Il rl)\<close>
-   and  \<open>ledgra (graphI I) = ledgra (graphI I')\<close>
- shows  \<open>global_consistency (replace I I' (Infs ibc Il rl))\<close>
-  unfolding global_consistency_def using assms
+lemma firstcase: "\<not> inbc I' (Infs ibc Il rl) \<longrightarrow> replace I I' (Infs ibc Il rl) = (Infs ibc Il rl)"
+  unfolding replace_def
 proof (induction Il)
   case Nil
-  then show ?case
-    by simp 
+  then show ?case by simp
 next
   case (Cons a Il)
-  then show ?case sorry
+  then show ?case by simp
 qed
 
-
-
+lemma trec_upd_inv: 
+ \<open>global_consistency (Infs ibc Il rl) \<longrightarrow>  ledgra (graphI I) = ledgra (graphI I')
+    \<longrightarrow> global_consistency (replace I I' (Infs ibc Il rl))\<close>
+  unfolding global_consistency_def
+proof -
+obtain ii :: infrastructure and iia :: infrastructure where
+"(\<exists>v0 v1. (inbc v0 (replace I I' (Infs ibc Il rl)) \<and> inbc v1 (replace I I' (Infs ibc Il rl))) \<and> (\<exists>v2. ledgra (graphI v1) v2 \<noteq> ledgra (graphI v0) v2)) = ((inbc ii (replace I I' (Infs ibc Il rl)) \<and> inbc iia (replace I I' (Infs ibc Il rl))) \<and> (\<exists>v2. ledgra (graphI iia) v2 \<noteq> ledgra (graphI ii) v2))"
+  by metis
+  then obtain ccs :: "char list" where
+    f1: "(\<exists>i ia. (inbc i (replace I I' (Infs ibc Il rl)) \<and> inbc ia (replace I I' (Infs ibc Il rl))) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs)) = ((inbc ii (replace I I' (Infs ibc Il rl)) \<and> inbc iia (replace I I' (Infs ibc Il rl))) \<and> ledgra (graphI iia) ccs \<noteq> ledgra (graphI ii) ccs)"
+    by auto
+  have f2: "\<forall>i ia ib is ic. if ia \<in> set is then replace i ia (Infs ib is ic) = Infs ib (i # remove1 ia is) ic else replace i ia (Infs ib is ic) = Infs ib is ic"
+    by simp
+  have f3: "\<forall>i ia is. (i::infrastructure) \<notin> set (ia # is) \<or> i = ia \<or> i \<in> set is"
+    by (meson set_ConsD)
+  { assume "ledgra (graphI iia) ccs \<noteq> ledgra (graphI ii) ccs"
+    have "I' \<in> set Il \<and> ii \<in> set (I # remove1 I' Il) \<and> iia \<in> set Il \<longrightarrow> (((\<exists>i ia. (inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl)) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs)) \<or> ledgra (graphI I) \<noteq> ledgra (graphI I')) \<or> (\<forall>i ia. (\<not> inbc i (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc ia (replace I I' (Infs ibc Il rl))) \<or> (\<forall>cs. ledgra (graphI ia) cs = ledgra (graphI i) cs))) \<or> (\<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs) \<or> (\<exists>i ia. inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs))"
+      using f3 by (metis inbc.inbc_def notin_set_remove1)
+    moreover
+    { assume "iia \<notin> set Il"
+      { assume "iia \<noteq> I \<and> iia \<notin> set (remove1 I' Il)"
+        then have "replace I I' (Infs ibc Il rl) = Infs ibc (I # remove1 I' Il) rl \<longrightarrow> \<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs"
+          using f3 by (metis (no_types) inbc.inbc_def) }
+      then have "I' \<in> set Il \<and> replace I I' (Infs ibc Il rl) = Infs ibc (I # remove1 I' Il) rl \<and> ii \<in> set (I # remove1 I' Il) \<longrightarrow> (((\<exists>i ia. (inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl)) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs)) \<or> ledgra (graphI I) \<noteq> ledgra (graphI I')) \<or> (\<forall>i ia. (\<not> inbc i (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc ia (replace I I' (Infs ibc Il rl))) \<or> (\<forall>cs. ledgra (graphI ia) cs = ledgra (graphI i) cs))) \<or> (\<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs) \<or> (\<exists>i ia. inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs))"
+        using f3 by (metis (no_types) inbc.inbc_def notin_set_remove1) }
+        ultimately have "I' \<in> set Il \<and> replace I I' (Infs ibc Il rl) = Infs ibc (I # remove1 I' Il) rl \<and> ii \<in> set (I # remove1 I' Il) \<longrightarrow> (((\<exists>i ia. (inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl)) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs)) \<or> ledgra (graphI I) \<noteq> ledgra (graphI I')) \<or> (\<forall>i ia. (\<not> inbc i (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc ia (replace I I' (Infs ibc Il rl))) \<or> (\<forall>cs. ledgra (graphI ia) cs = ledgra (graphI i) cs))) \<or> (\<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs) \<or> (\<exists>i ia. inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs))"
+by satx
+  moreover
+  { assume "ii \<notin> set (I # remove1 I' Il)"
+      then have "replace I I' (Infs ibc Il rl) = Infs ibc (I # remove1 I' Il) rl \<longrightarrow> \<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs"
+    using inbc.inbc_def by presburger }
+  moreover
+  { assume "replace I I' (Infs ibc Il rl) = Infs ibc Il rl"
+    then have "(\<exists>i ia. inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs)) \<or> \<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs"
+      by auto }
+  ultimately have "(\<not> inbc ii (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc iia (replace I I' (Infs ibc Il rl)) \<or> ledgra (graphI iia) ccs = ledgra (graphI ii) ccs) \<or> ((\<exists>i ia. (inbc i (Infs ibc Il rl) \<and> inbc ia (Infs ibc Il rl)) \<and> (\<exists>cs. ledgra (graphI ia) cs \<noteq> ledgra (graphI i) cs)) \<or> ledgra (graphI I) \<noteq> ledgra (graphI I')) \<or> (\<forall>i ia. (\<not> inbc i (replace I I' (Infs ibc Il rl)) \<or> \<not> inbc ia (replace I I' (Infs ibc Il rl))) \<or> (\<forall>cs. ledgra (graphI ia) cs = ledgra (graphI i) cs))"
+    using f2 by meson }
+  then show "(\<forall>i ia. inbc i (Infs ibc Il rl) \<longrightarrow> inbc ia (Infs ibc Il rl) \<longrightarrow> (\<forall>cs. ledgra (graphI ia) cs = ledgra (graphI i) cs)) \<longrightarrow> ledgra (graphI I) = ledgra (graphI I') \<longrightarrow> (\<forall>i ia. inbc i (replace I I' (Infs ibc Il rl)) \<longrightarrow> inbc ia (replace I I' (Infs ibc Il rl)) \<longrightarrow> (\<forall>cs. ledgra (graphI ia) cs = ledgra (graphI i) cs))"
+    using f1 by blast
+qed
 
 inductive state_transition_in :: "[blockchainset, blockchainset] \<Rightarrow> bool" ("(_ \<rightarrow>\<^sub>n _)" 50)
 where
@@ -326,7 +367,7 @@ where
          R' = Infrastructure 
                    (Lgraph (gra R)(agra R)(cgra R)(lgra R)
                            ((ledgra R)(d := Some((a', as),N)))
-                           (\<lambda> n. (Send(a,b,(a,as), d)) # (trec R n)))
+                           (trec R))
                    (delta (relayer Il)) \<Longrightarrow>  
          l \<in> trcs Il \<Longrightarrow> Consensus I Il = Il' \<Longrightarrow>
          Il' = insertp ((Send(a,b,(a,as), d)) # l) (replrel R' Il)
@@ -341,7 +382,7 @@ where
             R' = Infrastructure 
                    (Lgraph (gra R)(agra R)(cgra R)(lgra R)
                            ((ledgra R)(d := Some((b, bs),N)))
-                           (\<lambda> n. (Receive(a,b,(a,as), d)) # (trec R n)))
+                           (trec R))
                   (delta (relayer Il))  \<Longrightarrow>
             Il' = insertp (Receive(a,b,(a,as),d)# l) (replrel R' (bc_upd d ((b,as), N) Il)) \<Longrightarrow>
             Consensus J Il = Il' 
@@ -394,7 +435,7 @@ Il' = insertp ((Send(a,b,(a,as), d)) # l) (replrel R' Il)
 theorem consistency_preservation: 
    "global_consistency Il \<Longrightarrow> (Il \<rightarrow>\<^sub>n Il') \<Longrightarrow> global_consistency Il'" 
 proof (erule state_transition_in.cases, simp_all)
-  show \<open>\<And>I Ila G a n R r n' d as N R' a' b l Il'a.
+  show \<open>\<And>I Ila G a n R r n' d as N R' a' l Il'a b.
        global_consistency Ila \<Longrightarrow>
        Il = Ila \<Longrightarrow>
        Il' =
@@ -403,8 +444,7 @@ proof (erule state_transition_in.cases, simp_all)
           (Infrastructure
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-              (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-              (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N))) (trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           Ila) \<Longrightarrow>
        inbc I Ila \<Longrightarrow>
@@ -422,7 +462,7 @@ proof (erule state_transition_in.cases, simp_all)
        Infrastructure
         (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila))) (cgra (graphI (relayer Ila)))
           (lgra (graphI (relayer Ila))) (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-          (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+          (trec (graphI (relayer Ila))))
         (delta (relayer Ila)) \<Longrightarrow>
        l \<in> trcs Ila \<Longrightarrow>
        Consensus I Ila =
@@ -431,8 +471,7 @@ proof (erule state_transition_in.cases, simp_all)
           (Infrastructure
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-              (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-              (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N))) (trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           Ila) \<Longrightarrow>
        Il'a =
@@ -441,8 +480,7 @@ proof (erule state_transition_in.cases, simp_all)
           (Infrastructure
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-              (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-              (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N))) (trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           Ila) \<Longrightarrow>
        global_consistency
@@ -451,11 +489,10 @@ proof (erule state_transition_in.cases, simp_all)
             (Infrastructure
               (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
                 (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-                (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N)))
-                (\<lambda>n. Send (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+                (ledgra (graphI (relayer Ila))(d \<mapsto> ((a', as), N))) (trec (graphI (relayer Ila))))
               (delta (relayer Ila)))
             Ila))\<close>
-    by (simp add: cons_lemma)
+    by (smt blockchainset.exhaust global_consistency_def inbc.inbc_def insertp_def replrel.replrel_def the_Il.simps)
 next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
        global_consistency Ila \<Longrightarrow>
        Il = Ila \<Longrightarrow>
@@ -465,8 +502,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
           (Infrastructure
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-              (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N))) (trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           (bc_upd d ((b, as), N) Ila)) \<Longrightarrow>
        G = graphI I \<Longrightarrow>
@@ -489,7 +525,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
        Infrastructure
         (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila))) (cgra (graphI (relayer Ila)))
           (lgra (graphI (relayer Ila))) (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-          (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+          (trec (graphI (relayer Ila))))
         (delta (relayer Ila)) \<Longrightarrow>
        Il'a =
        insertp (Receive (a, b, (a, as), d) # l)
@@ -497,8 +533,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
           (Infrastructure
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-              (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N))) (trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           (bc_upd d ((b, as), N) Ila)) \<Longrightarrow>
        Consensus J Ila =
@@ -507,8 +542,7 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
           (Infrastructure
             (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
               (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-              (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+              (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N))) (trec (graphI (relayer Ila))))
             (delta (relayer Ila)))
           (bc_upd d ((b, as), N) Ila)) \<Longrightarrow>
        global_consistency
@@ -517,10 +551,9 @@ next show \<open>\<And>G I Ila a n d as N H J b n' R r n'' R' bs Il'a l.
             (Infrastructure
               (Lgraph (gra (graphI (relayer Ila))) (agra (graphI (relayer Ila)))
                 (cgra (graphI (relayer Ila))) (lgra (graphI (relayer Ila)))
-                (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N)))
-                (\<lambda>n. Receive (a, b, (a, as), d) # trec (graphI (relayer Ila)) n))
+                (ledgra (graphI (relayer Ila))(d \<mapsto> ((b, bs), N))) (trec (graphI (relayer Ila))))
               (delta (relayer Ila)))
-            (bc_upd d ((b, as), N) Ila))) \<close>
+            (bc_upd d ((b, as), N) Ila)))\<close>
     by (smt bc_upd_def bc_upd_inv global_consistency_def inbc.inbc_def insertp_def replrel.replrel_def the_Il.simps) 
 next show \<open> \<And>I Ila G a actors n d as N I' b Il'a.
        global_consistency Ila \<Longrightarrow>
